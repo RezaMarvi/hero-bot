@@ -3,42 +3,47 @@ import json
 import base64
 import gspread
 from google.oauth2.service_account import Credentials
-from telegram import Update, ReplyKeyboardMarkup
+from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
 
-# بازیابی مقدار BASE64 و تبدیل آن به دیکشنری
+# بارگذاری اطلاعات Google Credentials از BASE64
 credentials_base64 = os.getenv("GOOGLE_CREDENTIALS_BASE64")
 if not credentials_base64:
     raise ValueError("GOOGLE_CREDENTIALS_BASE64 not set")
-
 creds_dict = json.loads(base64.b64decode(credentials_base64))
 scopes = ["https://www.googleapis.com/auth/spreadsheets"]
 credentials = Credentials.from_service_account_info(creds_dict, scopes=scopes)
 client = gspread.authorize(credentials)
+
+# اتصال به Google Sheet
 sheet = client.open("BearingDataBase").sheet1
 
-# ربات تلگرام
-TOKEN = os.getenv("TELEGRAM_TOKEN")
-
+# تعریف پاسخ خوش‌آمدگویی
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [["جستجو قیمت بلبرینگ"]]
-    await update.message.reply_text("سلام! لطفاً یکی از گزینه‌ها را انتخاب کنید:", reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True))
+    await update.message.reply_text("سلام! لطفاً شماره فنی بلبرینگ را وارد کنید.")
 
+# جستجوی شماره فنی
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-    if text == "جستجو قیمت بلبرینگ":
-        await update.message.reply_text("لطفاً شماره فنی بلبرینگ را وارد کنید:")
-    else:
-        data = sheet.get_all_records()
-        matched = [row for row in data if str(row.get("شماره فنی", "")).strip() == text.strip()]
-        if matched:
-            row = matched[0]
-            response = f"✅ مشخصات بلبرینگ:\n\nشماره فنی: {row.get('شماره فنی')}\nبرند: {row.get('برند')}\nقیمت: {row.get('قیمت')}\nکاربرد: {row.get('کاربرد')}\nتوضیحات: {row.get('توضیحات')}"
-        else:
-            response = "❌ بلبرینگ موردنظر یافت نشد."
-        await update.message.reply_text(response)
+    query = update.message.text.strip()
+    data = sheet.get_all_records()
+    for row in data:
+        if str(row.get("شماره فنی", "")).strip() == query:
+            brand = row.get("برند", "—")
+            price = row.get("قیمت", "—")
+            usage = row.get("کاربرد", "—")
+            desc = row.get("توضیحات", "—")
+            result = f"✅ نتیجه:\n\n🔹 برند: {brand}\n🔹 قیمت: {price}\n🔹 کاربرد: {usage}\n🔹 توضیحات: {desc}"
+            await update.message.reply_text(result)
+            return
+    await update.message.reply_text("متأسفم، موردی پیدا نشد.")
 
-app = ApplicationBuilder().token(TOKEN).build()
-app.add_handler(CommandHandler("start", start))
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-app.run_polling()
+# اجرای ربات
+if __name__ == "__main__":
+    TOKEN = os.getenv("TELEGRAM_TOKEN")
+    if not TOKEN:
+        raise ValueError("TELEGRAM_TOKEN not set")
+
+    app = ApplicationBuilder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.run_polling()
